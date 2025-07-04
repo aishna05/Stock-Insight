@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="p-8">
+  <form id="predict-form">
+    <input type="text" name="ticker" placeholder="Enter ticker" class="border p-2" />
+    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Predict</button>
+  </form>
+
+  <div id="result" class="mt-6 hidden">
+    <p>Next day price: <span id="price"></span></p>
+    <img id="plot1" />
+    <img id="plot2" />
+  </div>
+</div>
+
+<script>
+document.getElementById("predict-form").onsubmit = async function(e) {
+  e.preventDefault();
+  const ticker = e.target.ticker.value;
+  const res = await fetch("/api/v1/predict/", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer {{ access_token }}", // inject token
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ ticker })
+  });
+  const data = await res.json();
+  document.getElementById("price").innerText = data.next_day_price;
+  document.getElementById("plot1").src = data.plot_urls[0];
+  document.getElementById("plot2").src = data.plot_urls[1];
+  document.getElementById("result").classList.remove("hidden");
+}
+</script>
+{% endblock %}

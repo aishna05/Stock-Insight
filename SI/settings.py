@@ -39,7 +39,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'tailwind',
     'django_browser_reload',
-    'user',  # Assuming 'user' is the name of your app
+    'user',
+    'predictions',
+    'rest_framework',
+    'rest_framework_simplejwt',
 ]
 
 
