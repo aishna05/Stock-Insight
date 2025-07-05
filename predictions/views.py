@@ -14,6 +14,7 @@ from django.conf import settings
 from django.shortcuts import render
 from .ml.predictor import predict_stock_and_generate_plots
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 
 
 class PredictView(APIView):
@@ -83,6 +84,7 @@ class PredictionListView(APIView):
 def health_check(request):
     return Response({"status": "ok"})
 
+@login_required
 def dashboard(request):
     context = {
         'MEDIA_URL': settings.MEDIA_URL,  

@@ -21,7 +21,7 @@ class Prediction(models.Model):
 
 class tgUser(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    chat_id = models.BigIntegerField(unique=True)
+    chat_id = models.BigIntegerField(unique=False)
 
     def __str__(self):
         return f"{self.user.username} - {self.chat_id}"

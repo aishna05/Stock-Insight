@@ -6,6 +6,8 @@ from .views import register_view, login_view, dashboard_view
 from .views import create_checkout_session
 from .views import check_pro_status
 
+app_name = 'user'
+
 
 urlpatterns = [
     # path('', home, name='home'),
