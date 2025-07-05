@@ -77,5 +77,8 @@ Run for a Specific Ticker
 
 docker-compose run --rm predictor python manage.py predict --ticker AAPL
 
+docker-compose run --rm predictor python manage.py --all
+
+
 ```
 
