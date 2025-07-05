@@ -4,13 +4,47 @@
 <head>
     <meta charset="UTF-8">
     <title>{% block title %}Stock Insight{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Optional: Custom Tailwind Config for green theme -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            light: '#a7f3d0',
+                            DEFAULT: '#10b981',
+                            dark: '#047857'
+                        }
+                    },
+                    fontFamily: {
+                        heading: ['"Segoe UI"', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
 </head>
-<body class="bg-gray-100 text-gray-800">
-    <div class="container mx-auto p-6">
-        <h1 class="text-3xl font-bold text-center mb-6">Stock Insight</h1>
+<body class="bg-gradient-to-br from-green-50 via-white to-green-100 text-gray-800 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-white shadow-md py-4 mb-6">
+        <div class="container mx-auto px-6 flex justify-between items-center">
+            <h1 class="text-3xl font-extrabold text-green-700 font-heading">📊 Stock Insight</h1>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 flex-grow">
         {% block content %}
         {% endblock %}
-    </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white mt-12 py-4 shadow-inner text-center text-sm text-gray-500">
+        &copy; {{ now|date:"Y" }} Stock Insight. All rights reserved.
+    </footer>
 </body>
 </html>

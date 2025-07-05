@@ -1,15 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Login{% endblock %}
+
 {% block content %}
-<form method="POST" class="max-w-md mx-auto bg-white p-6 rounded shadow">
-    {% csrf_token %}
-    <h2 class="text-xl font-semibold mb-4">Login</h2>
-    {{ form.as_p }}
-    <button class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded" type="submit">
-        Login
-    </button>
-</form>
-<p class="text-center mt-4">
-    Don't have an account? <a href="{% url 'register' %}" class="text-blue-600 underline">Register</a>
-</p>
+<div class="flex items-center justify-center min-h-screen bg-gradient-to-br from-green-50 via-white to-green-100 px-4 py-12">
+
+    <form method="POST" class="w-full max-w-md bg-white border border-green-100 p-8 rounded-2xl shadow-xl space-y-6 transition hover:shadow-2xl">
+        {% csrf_token %}
+        <h2 class="text-3xl font-bold text-green-700 text-center">🔐 Login</h2>
+
+        <!-- Render Django Form -->
+        <div class="space-y-4 text-sm text-gray-700">
+            {{ form.as_p }}
+        </div>
+
+        <button type="submit"
+                class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-300 shadow-md hover:shadow-lg">
+            🚀 Login
+        </button>
+
+        <p class="text-center text-sm text-gray-600 mt-4">
+            Don't have an account?
+            <a href="{% url 'register' %}" class="text-green-600 hover:underline font-medium">Register here</a>
+        </p>
+    </form>
+</div>
 {% endblock %}

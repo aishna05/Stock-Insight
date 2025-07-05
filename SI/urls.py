@@ -18,12 +18,16 @@ from django.contrib import admin
 from django.urls import path , include
 from django.conf import settings
 from django.conf.urls.static import static
+from predictions.views import health_check
+from user.views import stripe_webhook
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("__reload__/", include("django_browser_reload.urls")),
     path('', include('user.urls')),
     path("api/v1/", include("predictions.urls")),
+    path('healthz/', health_check),
+    path('webhooks/stripe/', stripe_webhook, name='stripe-webhook'),
 ]
 
 if settings.DEBUG:
