@@ -5,7 +5,7 @@ from django.http import JsonResponse
 from predictions.models import Prediction
 
 
-class QuotaMiddleware:
+class UserMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 

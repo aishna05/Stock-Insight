@@ -1,20 +1,30 @@
 import os
+import asyncio
 import logging
+from datetime import datetime, timedelta
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 from predictions.models import Prediction, tgUser
 from predictions.ml.predictor import predict_stock_and_generate_plots
-from django.conf import settings
-from datetime import datetime, timedelta
+
 import stripe
 
+# Stripe setup
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
+# Logging
 logging.basicConfig(level=logging.INFO)
+
+# Rate limiter dictionary
 USER_RATE_LIMIT = {}
+
 
 def rate_limited(user_id):
     now = datetime.now()
@@ -26,30 +36,29 @@ def rate_limited(user_id):
     USER_RATE_LIMIT[user_id] = timestamps
     return False
 
-# /start
+
+# --- Telegram Bot Handlers ---
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     username = update.effective_user.username
 
     if not username:
-        await update.message.reply_text("❌ You don't have a Telegram username. Please set one in Telegram settings.")
+        await update.message.reply_text("❌ Please set a Telegram username first.")
         return
 
     user = await sync_to_async(User.objects.filter(username=username).first)()
     if not user:
-        await update.message.reply_text("❌ You must register and login on the platform first.")
+        await update.message.reply_text("❌ Please register and login on the website first.")
         return
 
-    telegram_user = await sync_to_async(tgUser.objects.filter(user=user).first)()
-    if telegram_user:
-        telegram_user.chat_id = chat_id
-    else:
-        telegram_user = tgUser(user=user, chat_id=chat_id)
+    tg_user, _ = await sync_to_async(tgUser.objects.get_or_create)(user=user)
+    tg_user.chat_id = chat_id
+    await sync_to_async(tg_user.save)()
 
-    await sync_to_async(telegram_user.save)()
     await update.message.reply_text("✅ Telegram account linked successfully!")
 
-# /help
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "/start – Link Telegram to your account\n"
@@ -59,11 +68,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help – Show this help message"
     )
 
-# /predict
+
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-
     telegram_user = await sync_to_async(tgUser.objects.filter(chat_id=chat_id).first)()
+
     if not telegram_user:
         await update.message.reply_text("❌ Use /start first to link your account.")
         return
@@ -84,7 +93,7 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     if rate_limited(chat_id):
-        await update.message.reply_text("⏳ Rate limit exceeded (10 predictions/min). Please wait.")
+        await update.message.reply_text("⏳ Rate limit exceeded (10/min). Please wait.")
         return
 
     if len(context.args) != 1:
@@ -95,7 +104,6 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         price, mse, rmse, r2, plot1, plot2 = await sync_to_async(predict_stock_and_generate_plots)(ticker)
-
         rel_plot1 = os.path.relpath(plot1, settings.MEDIA_ROOT)
         rel_plot2 = os.path.relpath(plot2, settings.MEDIA_ROOT)
 
@@ -122,10 +130,11 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.exception("Prediction error")
         await update.message.reply_text(f"⚠️ Error during prediction: {str(e)}")
 
-# /latest
+
 async def latest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     telegram_user = await sync_to_async(tgUser.objects.filter(chat_id=chat_id).first)()
+
     if not telegram_user:
         await update.message.reply_text("❌ Use /start first.")
         return
@@ -147,21 +156,22 @@ async def latest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_photo(photo=open(os.path.join(settings.MEDIA_ROOT, latest_prediction.plot_1.name), 'rb'))
     await update.message.reply_photo(photo=open(os.path.join(settings.MEDIA_ROOT, latest_prediction.plot_2.name), 'rb'))
 
-# /subscribe
+
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     telegram_user = await sync_to_async(tgUser.objects.filter(chat_id=chat_id).first)()
+
     if not telegram_user:
-        await update.message.reply_text("❌ Use /start to link your Telegram account first.")
+        await update.message.reply_text("❌ Use /start first.")
         return
 
     user = await sync_to_async(lambda: telegram_user.user)()
 
-    try:
-        if not user.email:
-            await update.message.reply_text("⚠️ Email address missing in your account. Please register with a valid email.")
-            return
+    if not user.email:
+        await update.message.reply_text("⚠️ Email missing. Please register with a valid email.")
+        return
 
+    try:
         session = await sync_to_async(stripe.checkout.Session.create)(
             customer_email=user.email,
             line_items=[{
@@ -184,25 +194,29 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💳 Subscribe to Pro plan:\n{session.url}")
 
     except Exception as e:
-        logging.exception("Stripe error")
+        logging.exception("Stripe Error")
         await update.message.reply_text(f"⚠️ Stripe Error: {str(e)}")
 
-# Run command
+
+# --- Management Command ---
 class Command(BaseCommand):
     help = 'Run the Telegram bot using long polling.'
 
-    def handle(self, *args, **kwargs):
-        token = os.environ.get('BOT_TOKEN')
-        if not token:
-            raise Exception("BOT_TOKEN is not set in the environment variables.")
+    def handle(self, *args, **options):
+        async def run_bot():
+            token = os.environ.get('BOT_TOKEN')
+            if not token:
+                raise Exception("❌ BOT_TOKEN is not set in environment variables.")
 
-        app = ApplicationBuilder().token(token).build()
+            app = ApplicationBuilder().token(token).build()
 
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("help", help_command))
-        app.add_handler(CommandHandler("predict", predict))
-        app.add_handler(CommandHandler("latest", latest))
-        app.add_handler(CommandHandler("subscribe", subscribe))
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(CommandHandler("help", help_command))
+            app.add_handler(CommandHandler("predict", predict))
+            app.add_handler(CommandHandler("latest", latest))
+            app.add_handler(CommandHandler("subscribe", subscribe))
 
-        self.stdout.write("✅ Telegram bot started...")
-        app.run_polling()
+            self.stdout.write("✅ Telegram bot started via `manage.py bss`...")
+            await app.run_polling()
+
+        asyncio.run(run_bot())
