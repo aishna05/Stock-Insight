@@ -1,95 +1,67 @@
 import os
-import yfinance as yf
 import numpy as np
 import pandas as pd
+import yfinance as yf
 import matplotlib.pyplot as plt
-
-from keras.models import load_model
 from sklearn.preprocessing import MinMaxScaler
+from keras.models import load_model
+from django.conf import settings
 from sklearn.metrics import mean_squared_error, r2_score
-from math import sqrt
-from datetime import datetime, timedelta
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLOT_DIR = os.getenv("PLOT_DIR", os.path.join(BASE_DIR, "plots"))
-MODEL_PATH = os.getenv("MODEL_PATH", "stock_prediction_model.keras")
+def load_lstm_model():
+    model_path = getattr(settings, 'MODEL_PATH', 'stock_prediction_model.keras')
+    if not os.path.exists(model_path):
+        raise FileNotFoundError("Model file not found.")
+    return load_model(model_path)
 
-if not os.path.exists(PLOT_DIR):
-    os.makedirs(PLOT_DIR)
+def predict_stock_and_generate_plots(ticker):
+    model = load_lstm_model()
+    df = yf.download(ticker, period="10y")
 
-# Load model once (lazy load)
-_model = None
-def load_trained_model():
-    global _model
-    if _model is None:
-        try:
-            _model = load_model(MODEL_PATH)
-        except Exception as e:
-            raise RuntimeError(f"Error loading model: {e}")
-    return _model
+    if df.empty:
+        raise ValueError("No data found for ticker.")
 
-def generate_prediction(ticker: str):
-    try:
-        df = yf.download(ticker, period="10y")
-        if df.empty:
-            raise ValueError("No data found for ticker")
+    data = df[['Close']]
+    dataset = data.values
 
-        data = df[['Close']].values
-        scaler = MinMaxScaler()
-        data_scaled = scaler.fit_transform(data)
+    scaler = MinMaxScaler()
+    scaled_data = scaler.fit_transform(dataset)
 
-        X, y = [], []
-        window = 60
-        for i in range(window, len(data_scaled)):
-            X.append(data_scaled[i - window:i])
-            y.append(data_scaled[i])
+    # Create test sequence
+    sequence_length = 60
+    X_test = [scaled_data[i - sequence_length:i, 0] for i in range(sequence_length, len(scaled_data))]
+    X_test = np.array(X_test).reshape(-1, sequence_length, 1)
 
-        X, y = np.array(X), np.array(y)
+    # Predictions
+    predictions = model.predict(X_test)
+    predictions = scaler.inverse_transform(predictions)
+    actual = dataset[sequence_length:]
 
-        model = load_trained_model()
-        predictions = model.predict(X)
+    mse = mean_squared_error(actual, predictions)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(actual, predictions)
 
-        # Metrics
-        mse = mean_squared_error(y, predictions)
-        rmse = sqrt(mse)
-        r2 = r2_score(y, predictions)
+    # Next-day forecast
+    next_input = scaled_data[-60:].reshape(1, 60, 1)
+    next_pred = model.predict(next_input)
+    next_day_price = scaler.inverse_transform(next_pred)[0][0]
 
-        # Inverse transform
-        last_60 = data_scaled[-60:]
-        last_60 = np.expand_dims(last_60, axis=0)
-        next_day_scaled = model.predict(last_60)
-        next_day_price = scaler.inverse_transform(next_day_scaled)[0][0]
+    # Plot 1: Closing price history
+    plot_dir = os.path.join(settings.MEDIA_ROOT, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+    plot1_path = os.path.join(plot_dir, f'{ticker}_plot1.png')
+    data.plot(title=f"{ticker} - Closing Price History")
+    plt.savefig(plot1_path)
+    plt.close()
 
-        # Inverse for plots
-        y_true = scaler.inverse_transform(y)
-        y_pred = scaler.inverse_transform(predictions)
+    # Plot 2: Actual vs Predicted
+    plt.figure()
+    plt.plot(actual, label='Actual')
+    plt.plot(predictions, label='Predicted')
+    plt.legend()
+    plt.title("Actual vs Predicted")
+    plot2_path = os.path.join(plot_dir, f'{ticker}_plot2.png')
+    plt.savefig(plot2_path)
+    plt.close()
 
-        # Plot 1: closing price history
-        plot1_path = os.path.join(PLOT_DIR, f"{ticker}_history.png")
-        df['Close'].plot(title=f"{ticker} - Price History")
-        plt.savefig(plot1_path)
-        plt.close()
-
-        # Plot 2: actual vs predicted
-        plot2_path = os.path.join(PLOT_DIR, f"{ticker}_prediction.png")
-        plt.plot(y_true, label="Actual")
-        plt.plot(y_pred, label="Predicted")
-        plt.title(f"{ticker} - Actual vs Predicted")
-        plt.legend()
-        plt.savefig(plot2_path)
-        plt.close()
-
-        return {
-            "ticker": ticker,
-            "next_day_price": round(next_day_price, 2),
-            "metrics": {
-                "mse": round(mse, 4),
-                "rmse": round(rmse, 4),
-                "r2": round(r2, 4),
-            },
-            "plot_urls": [f"/media/{os.path.basename(plot1_path)}", f"/media/{os.path.basename(plot2_path)}"],
-            "plot_paths": [plot1_path, plot2_path]
-        }
-
-    except Exception as e:
-        raise RuntimeError(f"Prediction failed: {str(e)}")
+    return next_day_price, mse, rmse, r2, plot1_path, plot2_path

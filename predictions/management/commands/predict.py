@@ -1,43 +1,51 @@
-from django.core.management.base import BaseCommand
-from predictions.ml.predictor import generate_prediction
-from predictions.models import Prediction
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth.models import User
-import os
+from predictions.models import Prediction
+from predictions.ml.predictor import predict_stock_and_generate_plots
 
 class Command(BaseCommand):
-    help = "Generate predictions for a single ticker or all tickers"
+    help = "Run prediction for a given ticker or all tickers in system"
 
     def add_arguments(self, parser):
-        parser.add_argument('--ticker', type=str, help='Single ticker')
-        parser.add_argument('--all', action='store_true', help='Run for all tickers in ENV var TICKERS (comma-separated)')
+        parser.add_argument('--ticker', type=str, help='Stock ticker (e.g. TSLA)')
+        parser.add_argument('--all', action='store_true', help='Predict for all distinct tickers used before')
 
     def handle(self, *args, **options):
-        tickers = []
-
-        if options['ticker']:
-            tickers.append(options['ticker'].upper())
-        elif options['all']:
-            tickers = os.getenv("TICKERS", "").split(",")
+        if options['all']:
+            tickers = Prediction.objects.values_list('ticker', flat=True).distinct()
+            if not tickers:
+                raise CommandError("No previous tickers found to predict.")
+        elif options['ticker']:
+            tickers = [options['ticker'].upper()]
         else:
-            self.stdout.write(self.style.ERROR("Please provide --ticker or --all"))
-            return
+            raise CommandError("Specify either --ticker <TICKER> or --all")
 
-        # Use admin or first user
-        user = User.objects.first()
-        if not user:
-            self.stdout.write(self.style.ERROR("No user found"))
-            return
+        # Use first superuser as dummy for CLI predictions
+        try:
+            user = User.objects.filter(is_superuser=True).first() or User.objects.first()
+            if not user:
+                raise CommandError("No users found to associate predictions with.")
+        except Exception as e:
+            raise CommandError(f"User error: {e}")
 
         for ticker in tickers:
             try:
-                result = generate_prediction(ticker)
+                self.stdout.write(f"Predicting for: {ticker}")
+                price, mse, rmse, r2, plot1, plot2 = predict_stock_and_generate_plots(ticker)
+
                 Prediction.objects.create(
                     user=user,
-                    ticker=result["ticker"],
-                    metrics=result["metrics"],
-                    plot1=result["plot_paths"][0],
-                    plot2=result["plot_paths"][1]
+                    ticker=ticker,
+                    next_day_price=price,
+                    mse=mse,
+                    rmse=rmse,
+                    r2=r2,
+                    plot_1=plot1.replace(settings.MEDIA_ROOT + '/', ''),
+                    plot_2=plot2.replace(settings.MEDIA_ROOT + '/', '')
                 )
-                self.stdout.write(self.style.SUCCESS(f"Prediction saved for {ticker}"))
+
+                self.stdout.write(self.style.SUCCESS(f"✓ {ticker} prediction saved."))
+
             except Exception as e:
-                self.stdout.write(self.style.ERROR(f"{ticker} failed: {e}"))
+                self.stderr.write(self.style.ERROR(f"✗ Failed for {ticker}: {e}"))
